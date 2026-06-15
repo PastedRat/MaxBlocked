@@ -9,6 +9,8 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 // ----------------------------- 1. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ -----------------------------
 const DEG = Math.PI / 180;
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+const MAX_SPEED_KMH = 180;
+const SPEED_TO_KMH = 130;
 
 const createAirfoilShape = (chord, thickness = 0.12, steps = 60) => {
   const shape = new THREE.Shape();
@@ -107,15 +109,15 @@ class FlightPhysics {
     this.throttle = 0;          // тяга (вперёд/назад)
     this.sideForce = 0;         // боковая сила (A/D)
     this.verticalForce = 0;     // вертикальная сила (Space/Ctrl)
-    this.maxThrust = 0.028;
-    this.dragCoeff = 0.985;
-    this.liftCoeff = 0.008;
+    this.maxThrust = 0.014;
+    this.dragCoeff = 0.982;
+    this.liftCoeff = 0.0065;
     this.gravity = 0.006;
     this.groundLevel = -2.2;
-    this.boostMult = 1.55;
-    this.pitchSpeed = 0.03;
-    this.yawSpeed = 0.025;
-    this.rollSpeed = 0.045;
+    this.boostMult = 1.12;
+    this.pitchSpeed = 0.018;
+    this.yawSpeed = 0.014;
+    this.rollSpeed = 0.028;
     this.aoa = 0;
   }
 
@@ -125,7 +127,7 @@ class FlightPhysics {
     if (inputs.w) targetThr = 1;
     else if (inputs.s) targetThr = -0.5;   // реверс для торможения
     else targetThr = 0;
-    this.throttle += (targetThr - this.throttle) * 3.0 * dt;
+    this.throttle += (targetThr - this.throttle) * 1.7 * dt;
     const thrust = Math.abs(this.throttle) * this.maxThrust * (isBoost ? this.boostMult : 1);
     const thrustDirection = this.throttle > 0 ? 1 : -1;
 
@@ -133,19 +135,19 @@ class FlightPhysics {
     let targetSide = 0;
     if (inputs.d) targetSide = 1;
     else if (inputs.a) targetSide = -1;
-    this.sideForce += (targetSide - this.sideForce) * 4.0 * dt;
+    this.sideForce += (targetSide - this.sideForce) * 2.4 * dt;
 
     // --- Вертикальная сила (Space / Ctrl) ---
     let targetVertical = 0;
     if (inputs.Space) targetVertical = 1;
     else if (inputs.Ctrl) targetVertical = -1;
-    this.verticalForce += (targetVertical - this.verticalForce) * 5.0 * dt;
+    this.verticalForce += (targetVertical - this.verticalForce) * 2.8 * dt;
 
     // --- Управление ориентацией (стрелки, но можно и без них) ---
     const pitchInp = (inputs.ArrowUp ? 1 : inputs.ArrowDown ? -1 : 0);
     const yawInp = 0;  // рыскание теперь от A/D, но оставим для совместимости
     const rollInp = (inputs.ArrowRight ? 1 : inputs.ArrowLeft ? -1 : 0);
-    
+
     // Приоритет: если используется A/D для рыскания, то поворачиваем корпус
     if (Math.abs(this.sideForce) > 0.05) {
       this.rot.y += this.sideForce * this.yawSpeed * dt * 60;
@@ -169,9 +171,9 @@ class FlightPhysics {
     const speed = this.vel.length();
     const liftForceMagnitude = (speed * speed) * this.liftCoeff * (1 + Math.abs(this.aoa) * 2);
     const thrustForce = forward.clone().multiplyScalar(thrust * thrustDirection);
-    const sideForceVec = right.clone().multiplyScalar(this.sideForce * 0.015 * speed);
+    const sideForceVec = right.clone().multiplyScalar(this.sideForce * 0.006 * speed);
     const liftForce = up.clone().multiplyScalar(liftForceMagnitude);
-    const verticalControlForce = up.clone().multiplyScalar(this.verticalForce * 0.025);
+    const verticalControlForce = up.clone().multiplyScalar(this.verticalForce * 0.012);
     const dragForce = this.vel.clone().multiplyScalar(-0.002 * speed);
     const gravityForce = new THREE.Vector3(0, -this.gravity, 0);
 
@@ -186,11 +188,12 @@ class FlightPhysics {
       this.vel.x *= 0.95;
       this.vel.z *= 0.95;
     }
-    if (this.vel.length() > 5.0) this.vel.multiplyScalar(5.0 / this.vel.length());
+    const maxSpeedUnits = MAX_SPEED_KMH / SPEED_TO_KMH;
+    if (this.vel.length() > maxSpeedUnits) this.vel.multiplyScalar(maxSpeedUnits / this.vel.length());
 
-    return { 
-      throttle: Math.abs(this.throttle), 
-      speed: this.vel.length() * 130, 
+    return {
+      throttle: Math.abs(this.throttle),
+      speed: Math.min(MAX_SPEED_KMH, this.vel.length() * SPEED_TO_KMH),
       aoa: this.aoa * 180 / Math.PI,
       vertical: this.verticalForce
     };
@@ -218,7 +221,7 @@ export default function App() {
 
   // --- НОВАЯ СХЕМА УПРАВЛЕНИЯ ---
   const inputState = useRef({
-    w: false, s: false, a: false, d: false,
+    w: false, s: false, a: false, d: false, c: false, r: false,
     Space: false, Ctrl: false,
     ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false,
   });
@@ -227,10 +230,10 @@ export default function App() {
     let key = e.code === 'Space' ? 'Space' : e.code === 'ControlLeft' ? 'Ctrl' : e.key;
     // Игнорируем, если клавиша не в нашей карте
     if (!inputState.current.hasOwnProperty(key)) return;
-    
+
     e.preventDefault();  // ОЧЕНЬ ВАЖНО: не даём браузеру прокручивать страницу
     inputState.current[key] = pressed;
-    
+
     if (pressed && key === 'c' && flightActive) setCamMode(prev => prev === 'follow' ? 'fpv' : 'follow');
     if (pressed && key === 'r' && flightActive) physicsRef.current.reset();
   }, [flightActive]);
@@ -293,16 +296,50 @@ export default function App() {
 
     // Земля
     const groundPlane = new THREE.Mesh(
-      new THREE.PlaneGeometry(2000, 2000),
-      new THREE.MeshStandardMaterial({ color: 0x1a2a3a, roughness: 0.85 })
+      new THREE.PlaneGeometry(2000, 2000, 96, 96),
+      new THREE.MeshStandardMaterial({ color: 0x172b1a, roughness: 0.92 })
     );
+    const groundPos = groundPlane.geometry.attributes.position;
+    for (let i = 0; i < groundPos.count; i++) {
+      const x = groundPos.getX(i);
+      const y = groundPos.getY(i);
+      const ripple = Math.sin(x * 0.018) * 0.55 + Math.cos(y * 0.014) * 0.45 + Math.sin((x + y) * 0.008) * 0.75;
+      groundPos.setZ(i, ripple);
+    }
+    groundPlane.geometry.computeVertexNormals();
     groundPlane.rotation.x = -Math.PI / 2;
     groundPlane.position.y = -2.2;
     groundPlane.receiveShadow = true;
     scene.add(groundPlane);
-    const gridHelper = new THREE.GridHelper(2000, 200, 0x3a6a9a, 0x1a3a5a);
-    gridHelper.position.y = -2.1;
-    scene.add(gridHelper);
+    const forestGroup = new THREE.Group();
+    scene.add(forestGroup);
+    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4b2f1a, roughness: 0.9 });
+    const pineMat = new THREE.MeshStandardMaterial({ color: 0x0d3b22, roughness: 0.95 });
+    const trunkGeo = new THREE.CylinderGeometry(0.07, 0.12, 1.2, 7);
+    const crownGeo = new THREE.ConeGeometry(0.55, 1.9, 8);
+    const treeCount = 850;
+    const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, treeCount);
+    const crowns = new THREE.InstancedMesh(crownGeo, pineMat, treeCount);
+    trunks.castShadow = crowns.castShadow = true;
+    trunks.receiveShadow = crowns.receiveShadow = true;
+    const dummy = new THREE.Object3D();
+    for (let i = 0; i < treeCount; i++) {
+      const angle = (i * 137.508) * DEG;
+      const radius = 35 + (i % 29) * 10 + Math.floor(i / 29) * 5;
+      const x = Math.cos(angle) * radius + (Math.sin(i * 12.989) * 18);
+      const z = Math.sin(angle) * radius + (Math.cos(i * 78.233) * 18);
+      if (Math.abs(x) < 18 && Math.abs(z) < 18) continue;
+      const scale = 0.75 + ((i * 17) % 100) / 180;
+      dummy.position.set(x, -1.62, z);
+      dummy.rotation.y = angle;
+      dummy.scale.setScalar(scale);
+      dummy.updateMatrix();
+      trunks.setMatrixAt(i, dummy.matrix);
+      dummy.position.y = -0.34 + scale * 0.35;
+      dummy.updateMatrix();
+      crowns.setMatrixAt(i, dummy.matrix);
+    }
+    forestGroup.add(trunks, crowns);
 
     // Звёзды
     const starCanvas = document.createElement('canvas');
@@ -324,9 +361,10 @@ export default function App() {
     const droneGroup = new THREE.Group();
     scene.add(droneGroup);
 
-    const matBody = new THREE.MeshStandardMaterial({ color: 0x7c8e9c, roughness: 0.5, metalness: 0.4 });
+    const matBody = new THREE.MeshStandardMaterial({ color: 0x8a927d, roughness: 0.58, metalness: 0.25 });
     const matDark = new THREE.MeshStandardMaterial({ color: 0x2a3a44, roughness: 0.7 });
-    const matCamo = new THREE.MeshStandardMaterial({ color: 0x5a6e4a, roughness: 0.6 });
+    const matCamo = new THREE.MeshStandardMaterial({ color: 0x4f633d, roughness: 0.72 });
+    const matSand = new THREE.MeshStandardMaterial({ color: 0x9a8c68, roughness: 0.75 });
     const matGlass = new THREE.MeshPhysicalMaterial({ color: 0x88aacc, transmission: 0.6, transparent: true });
     const matRed = new THREE.MeshStandardMaterial({ color: 0xcc3322, emissive: 0x441100 });
     const matGreen = new THREE.MeshStandardMaterial({ color: 0x33cc55, emissive: 0x226622 });
@@ -345,18 +383,21 @@ export default function App() {
     // Фюзеляж
     const fuse = new THREE.Group();
     droneGroup.add(fuse);
-    addMesh(fuse, new THREE.CylinderGeometry(0.48, 0.48, 2.4, 32), matBody, new THREE.Vector3(0.6, 0, 0), new THREE.Vector3(0, 0, Math.PI / 2));
-    addMesh(fuse, new THREE.CylinderGeometry(0.52, 0.5, 1.6, 32), matBody, new THREE.Vector3(-0.4, 0, 0), new THREE.Vector3(0, 0, Math.PI / 2));
-    addMesh(fuse, new THREE.ConeGeometry(0.48, 1.2, 32), matBody, new THREE.Vector3(1.4, 0, 0), new THREE.Vector3(0, 0, Math.PI / 2));
+    addMesh(fuse, new THREE.CylinderGeometry(0.42, 0.48, 2.9, 32), matBody, new THREE.Vector3(0.6, 0, 0), new THREE.Vector3(0, 0, Math.PI / 2));
+    addMesh(fuse, new THREE.CylinderGeometry(0.46, 0.42, 1.9, 32), matBody, new THREE.Vector3(-0.4, 0, 0), new THREE.Vector3(0, 0, Math.PI / 2));
+    addMesh(fuse, new THREE.ConeGeometry(0.43, 1.45, 32), matBody, new THREE.Vector3(1.4, 0, 0), new THREE.Vector3(0, 0, Math.PI / 2));
     addMesh(fuse, new THREE.CylinderGeometry(0.32, 0.24, 1.2, 24), matDark, new THREE.Vector3(-1.6, 0.05, 0), new THREE.Vector3(0, 0, Math.PI / 2));
     addMesh(fuse, new THREE.SphereGeometry(0.32, 24, 18, 0, Math.PI * 2, 0, Math.PI / 2), matGlass, new THREE.Vector3(1.22, 0.12, 0), new THREE.Vector3(0, 0, 0));
 
     // Крылья
-    const wingGeo = new THREE.BoxGeometry(2.1, 0.09, 3.8);
-    const leftWing = addMesh(fuse, wingGeo, matCamo, new THREE.Vector3(0.1, -0.18, -1.55), new THREE.Vector3(0, 0, 0.03));
-    const rightWing = addMesh(fuse, wingGeo, matCamo, new THREE.Vector3(0.1, -0.18, 1.55), new THREE.Vector3(0, 0, -0.03));
-    const leftAileron = addMesh(fuse, new THREE.BoxGeometry(0.6, 0.05, 0.9), matDark, new THREE.Vector3(0.1, -0.12, -2.0), new THREE.Vector3(0, 0, 0));
-    const rightAileron = addMesh(fuse, new THREE.BoxGeometry(0.6, 0.05, 0.9), matDark, new THREE.Vector3(0.1, -0.12, 2.0), new THREE.Vector3(0, 0, 0));
+    const wingGeo = new THREE.BoxGeometry(2.65, 0.075, 4.75);
+    const leftWing = addMesh(fuse, wingGeo, matCamo, new THREE.Vector3(0.05, -0.08, -1.95), new THREE.Vector3(0, 0, 0.03));
+    const rightWing = addMesh(fuse, wingGeo, matCamo, new THREE.Vector3(0.05, -0.08, 1.95), new THREE.Vector3(0, 0, -0.03));
+    const leftAileron = addMesh(fuse, new THREE.BoxGeometry(0.75, 0.04, 1.15), matDark, new THREE.Vector3(0.15, -0.02, -2.55), new THREE.Vector3(0, 0, 0));
+    const rightAileron = addMesh(fuse, new THREE.BoxGeometry(0.75, 0.04, 1.15), matDark, new THREE.Vector3(0.15, -0.02, 2.55), new THREE.Vector3(0, 0, 0));
+    addMesh(fuse, new THREE.BoxGeometry(0.9, 0.03, 1.1), matSand, new THREE.Vector3(0.65, 0.0, -1.85), new THREE.Vector3(0, 0.12, 0.02));
+    addMesh(fuse, new THREE.BoxGeometry(0.8, 0.03, 1.0), matSand, new THREE.Vector3(-0.45, 0.0, 1.85), new THREE.Vector3(0, -0.1, -0.02));
+    addMesh(fuse, new THREE.BoxGeometry(0.55, 0.035, 0.22), matCamo, new THREE.Vector3(0.7, 0.43, 0), new THREE.Vector3(0, 0, 0));
 
     // Хвост
     const tail = new THREE.Group();
@@ -386,6 +427,8 @@ export default function App() {
     let lastTime = performance.now();
     let animFrame;
     let propellerAngle = 0;
+    const smoothLookTarget = new THREE.Vector3();
+    const smoothCamQuat = new THREE.Quaternion();
 
     const animate = () => {
       const now = performance.now();
@@ -398,13 +441,13 @@ export default function App() {
         const isBoost = false; // можно сделать по Shift, но не просили – оставим
         setBoostActive(isBoost);
         const { throttle, speed, aoa, vertical } = physicsRef.current.update(dt, inputs, isBoost);
-        
+
         droneGroup.position.copy(physicsRef.current.pos);
         droneGroup.rotation.copy(physicsRef.current.rot);
-        
+
         propellerAngle += (0.25 + throttle * 2.5) * dt * 30;
         propeller.rotation.x = propellerAngle;
-        
+
         // Анимация рулей
         const rollInp = (inputs.ArrowRight ? 1 : inputs.ArrowLeft ? -1 : 0);
         leftAileron.rotation.z = rollInp * 0.35;
@@ -412,10 +455,10 @@ export default function App() {
         const pitchInp = (inputs.ArrowUp ? 1 : inputs.ArrowDown ? -1 : 0);
         rudderL.rotation.x = pitchInp * 0.3;
         rudderR.rotation.x = pitchInp * 0.3;
-        
+
         // Звук
         audioRef.current.update(throttle, speed / 130, isBoost, vertical);
-        
+
         const alt = (physicsRef.current.pos.y + 2.2).toFixed(1);
         setHudData({
           alt, spd: speed.toFixed(0), thr: (throttle * 100).toFixed(0),
@@ -423,30 +466,32 @@ export default function App() {
           roll: (physicsRef.current.rot.z * 180 / Math.PI).toFixed(1),
           aoa: aoa.toFixed(1)
         });
-        
+
         // Камеры
         if (camMode === 'follow') {
           const targetOffset = new THREE.Vector3(-7, 2.5, 0).applyEuler(new THREE.Euler(0, physicsRef.current.rot.y, 0));
-          camera.position.lerp(physicsRef.current.pos.clone().add(targetOffset), 5 * dt);
-          camera.lookAt(physicsRef.current.pos.clone().add(new THREE.Vector3(3, 0, 0).applyEuler(physicsRef.current.rot)));
+          camera.position.lerp(physicsRef.current.pos.clone().add(targetOffset), 2.2 * dt);
+          smoothLookTarget.lerp(physicsRef.current.pos.clone().add(new THREE.Vector3(5, 0.3, 0).applyEuler(physicsRef.current.rot)), 3.0 * dt);
+          camera.lookAt(smoothLookTarget);
           orbitControls.enabled = false;
         } else if (camMode === 'fpv') {
           const nosePos = physicsRef.current.pos.clone().add(new THREE.Vector3(1.6, 0.15, 0).applyEuler(physicsRef.current.rot));
-          camera.position.copy(nosePos);
-          camera.rotation.copy(physicsRef.current.rot);
-          camera.rotateY(-Math.PI / 2);
+          camera.position.lerp(nosePos, 6 * dt);
+          const desiredQuat = new THREE.Quaternion().setFromEuler(physicsRef.current.rot).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2));
+          smoothCamQuat.copy(camera.quaternion).slerp(desiredQuat, 5 * dt);
+          camera.quaternion.copy(smoothCamQuat);
           orbitControls.enabled = false;
         } else {
           orbitControls.enabled = true;
           orbitControls.target.lerp(physicsRef.current.pos, 0.1);
           orbitControls.update();
         }
-        
+
         // Бесконечная земля
         groundPlane.position.x = Math.round(physicsRef.current.pos.x / 500) * 500;
         groundPlane.position.z = Math.round(physicsRef.current.pos.z / 500) * 500;
-        gridHelper.position.x = groundPlane.position.x;
-        gridHelper.position.z = groundPlane.position.z;
+        forestGroup.position.x = groundPlane.position.x;
+        forestGroup.position.z = groundPlane.position.z;
       } else {
         droneGroup.position.set(0, 1.2 + Math.sin(Date.now() * 0.002) * 0.1, 0);
         droneGroup.rotation.set(0, Date.now() * 0.001, 0);
@@ -488,7 +533,7 @@ export default function App() {
           backdropFilter: 'blur(8px)', zIndex: 10
         }}>
           <h1 style={{ color: '#aaf0ff', fontSize: 58 }}>«ЛЮТЫЙ»</h1>
-          <p style={{ color: '#8ab0cc', marginBottom: 40 }}>Ударный БПЛА – новое управление WASD + Space (вверх) / Ctrl (вниз)</p>
+          <p style={{ color: '#8ab0cc', marginBottom: 40 }}>Дальний БПЛА в стиле «Лютый»: лесная местность, плавная камера, ограничение 180 км/ч</p>
           <button onClick={startFlight} style={{
             background: '#1a4a2a', border: '2px solid #2ecc71', color: '#ccffcc',
             fontSize: 28, padding: '16px 48px', cursor: 'pointer', borderRadius: 60
@@ -499,7 +544,7 @@ export default function App() {
         <>
           <div style={{ position: 'absolute', top: 20, left: 20, background: 'rgba(0,0,0,0.6)', padding: 16, borderRadius: 12, color: '#bbffcc', fontFamily: 'monospace', zIndex: 20 }}>
             <div>ВЫСОТА: {hudData.alt} м</div>
-            <div>СКОРОСТЬ: {hudData.spd} км/ч</div>
+            <div>СКОРОСТЬ: {hudData.spd} км/ч / MAX {MAX_SPEED_KMH}</div>
             <div>ТЯГА: {hudData.thr}%</div>
             <div>ТАНГАЖ: {hudData.pitch}° | КРЕН: {hudData.roll}°</div>
             <div>УГОЛ АТАКИ: {hudData.aoa}°</div>
