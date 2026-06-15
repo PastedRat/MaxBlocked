@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0a0a">
+  <title>Макс — проверка безопасности</title>
+  <style>
+    :root {
+      --bg: #0a0a0a;
+      --card: rgba(20, 20, 25, 0.82);
+      --card-border: rgba(255, 255, 255, 0.12);
+      --red: #ff374d;
+      --orange: #ffae42;
+      --text: #f8f8f8;
+      --muted: #b8bcc8;
+      --green: #46e58b;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-touch-callout: none;
+      user-select: none;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      overscroll-behavior: none;
+      touch-action: none;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    }
+
+    body {
+      position: fixed;
+      inset: 0;
+    }
+
+    .screen {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+      min-height: 100dvh;
+      padding: max(18px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+      background:
+        radial-gradient(circle at 50% 0%, rgba(255, 55, 77, 0.18), transparent 34%),
+        radial-gradient(circle at 15% 85%, rgba(255, 174, 66, 0.10), transparent 28%),
+        linear-gradient(145deg, #050505 0%, #111117 48%, #070707 100%);
+    }
+
+    .hidden {
+      opacity: 0;
+      pointer-events: none;
+      transform: scale(0.98);
+    }
+
+    .start-screen,
+    .lock-screen {
+      transition: opacity 450ms ease, transform 450ms ease;
+    }
+
+    .panel {
+      width: min(94vw, 520px);
+      padding: clamp(24px, 6vw, 42px);
+      border: 1px solid var(--card-border);
+      border-radius: 28px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
+      box-shadow: 0 30px 90px rgba(0, 0, 0, 0.62), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+      backdrop-filter: blur(18px);
+      text-align: center;
+      animation: rise 680ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+      padding: 8px 13px;
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .icon {
+      display: grid;
+      place-items: center;
+      width: clamp(82px, 24vw, 118px);
+      height: clamp(82px, 24vw, 118px);
+      margin: 0 auto 20px;
+      border-radius: 32px;
+      background: radial-gradient(circle at 35% 30%, #333744, #121217 68%);
+      box-shadow: 0 0 38px rgba(255, 55, 77, 0.24), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+      font-size: clamp(44px, 14vw, 66px);
+      animation: pulse 2.2s ease-in-out infinite;
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      color: var(--red);
+      font-size: clamp(27px, 8vw, 42px);
+      line-height: 1.05;
+      text-shadow: 0 0 24px rgba(255, 55, 77, 0.35);
+    }
+
+    .subtitle {
+      margin: 0 auto 22px;
+      max-width: 430px;
+      color: var(--muted);
+      font-size: clamp(15px, 4vw, 18px);
+      line-height: 1.45;
+    }
+
+    .data-card {
+      display: grid;
+      gap: 11px;
+      margin: 22px 0;
+      padding: 18px;
+      border: 1px solid rgba(70, 229, 139, 0.20);
+      border-radius: 18px;
+      background: rgba(0, 0, 0, 0.34);
+      color: #d8ffe7;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: clamp(12px, 3.4vw, 14px);
+      text-align: left;
+      box-shadow: inset 0 0 22px rgba(70, 229, 139, 0.04);
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 9px;
+      min-width: 0;
+    }
+
+    .value {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .warning {
+      margin: 0 0 18px;
+      color: var(--orange);
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+
+    .button {
+      width: 100%;
+      border: 0;
+      border-radius: 18px;
+      padding: 17px 20px;
+      background: linear-gradient(135deg, #ff374d, #ff7a18 55%, #ffd166);
+      color: #120606;
+      font-size: clamp(16px, 4.4vw, 19px);
+      font-weight: 900;
+      cursor: pointer;
+      box-shadow: 0 16px 38px rgba(255, 55, 77, 0.32);
+      transition: transform 160ms ease, filter 160ms ease;
+    }
+
+    .button:active {
+      transform: scale(0.98);
+    }
+
+    .button.loading {
+      color: rgba(18, 6, 6, 0.75);
+      cursor: wait;
+      filter: saturate(0.86);
+      background-size: 220% 100%;
+      animation: shimmer 900ms linear infinite;
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      background: rgba(0, 0, 0, 0.72);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 260ms ease;
+      z-index: 20;
+    }
+
+    .modal-backdrop.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .modal {
+      width: min(92vw, 420px);
+      padding: 28px;
+      border-radius: 24px;
+      background: #f7f7f7;
+      color: #171717;
+      text-align: center;
+      box-shadow: 0 22px 80px rgba(0, 0, 0, 0.55);
+      transform: translateY(16px) scale(0.96);
+      transition: transform 260ms ease;
+    }
+
+    .modal-backdrop.show .modal {
+      transform: translateY(0) scale(1);
+    }
+
+    .modal h2 {
+      margin: 0 0 10px;
+      font-size: 28px;
+    }
+
+    .modal p {
+      margin: 0 0 22px;
+      color: #3b3b3b;
+      line-height: 1.45;
+    }
+
+    .modal .button {
+      box-shadow: none;
+    }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(18px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: translateY(0); box-shadow: 0 0 34px rgba(255, 55, 77, 0.20); }
+      50% { transform: translateY(-4px); box-shadow: 0 0 52px rgba(255, 55, 77, 0.36); }
+    }
+
+    @keyframes shimmer {
+      from { background-position: 0% 50%; }
+      to { background-position: 220% 50%; }
+    }
+
+    @media (max-width: 390px) {
+      .panel { border-radius: 22px; }
+      .data-card { padding: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Стартовый экран нужен, чтобы браузер разрешил запросить полноэкранный режим по клику. -->
+  <main class="screen start-screen" id="startScreen" aria-label="Стартовый экран">
+    <section class="panel">
+      <div class="brand">MAX SECURITY</div>
+      <div class="icon" aria-hidden="true">📱</div>
+      <h1>Проверка устройства</h1>
+      <p class="subtitle">Нажмите кнопку, чтобы продолжить. Экран перейдёт в полноэкранный режим для имитации системного предупреждения.</p>
+      <button class="button" id="startButton" type="button">Нажмите, чтобы продолжить</button>
+    </section>
+  </main>
+
+  <main class="screen lock-screen hidden" id="lockScreen" aria-label="Экран блокировки">
+    <section class="panel">
+      <div class="brand">Приложение «Макс»</div>
+      <div class="icon" aria-hidden="true">🔒</div>
+      <h1>Устройство заблокировано</h1>
+      <p class="subtitle">Приложение "Макс" ограничило работу устройства в целях безопасности</p>
+
+      <div class="data-card" aria-label="Сведения о блокировке">
+        <div class="row"><span>📱 Устройство:</span><span class="value" id="device">Определение...</span></div>
+        <div class="row"><span>🌐 IP-адрес:</span><span class="value" id="ip">Определение...</span></div>
+        <div class="row"><span>🕒 Время блокировки:</span><span class="value" id="time">--:--:--</span></div>
+        <div class="row"><span>📍 Местоположение:</span><span class="value" id="location">Определение...</span></div>
+      </div>
+
+      <p class="warning">Для разблокировки нажмите кнопку</p>
+      <button class="button" id="unlockButton" type="button">Разблокировать устройство</button>
+    </section>
+  </main>
+
+  <div class="modal-backdrop" id="prankModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal">
+      <h2 id="modalTitle">😄 Это был пранк!</h2>
+      <p>Ваш телефон не заблокирован. Ничего не сохранено и не отправлено.</p>
+      <button class="button" id="closeModalButton" type="button">Закрыть</button>
+    </div>
+  </div>
+
+  <script>
+    // Базовые элементы интерфейса.
+    const startScreen = document.getElementById('startScreen');
+    const lockScreen = document.getElementById('lockScreen');
+    const startButton = document.getElementById('startButton');
+    const unlockButton = document.getElementById('unlockButton');
+    const prankModal = document.getElementById('prankModal');
+    const closeModalButton = document.getElementById('closeModalButton');
+
+    const deviceElement = document.getElementById('device');
+    const ipElement = document.getElementById('ip');
+    const timeElement = document.getElementById('time');
+    const locationElement = document.getElementById('location');
+
+    const cities = ['Москва', 'Санкт-Петербург', 'Казань', 'Екатеринбург', 'Новосибирск', 'Сочи', 'Нижний Новгород', 'Самара'];
+
+    // Запрещаем контекстное меню и жесты, которые могут разрушить эффект пранка.
+    document.addEventListener('contextmenu', (event) => event.preventDefault());
+    document.addEventListener('selectstart', (event) => event.preventDefault());
+    document.addEventListener('gesturestart', (event) => event.preventDefault());
+    document.addEventListener('gesturechange', (event) => event.preventDefault());
+    document.addEventListener('touchmove', (event) => event.preventDefault(), { passive: false });
+
+    // Делаем случайный IP из диапазона 185.x.x.x без обращения к внешним сервисам.
+    function generateFakeIp() {
+      const part = () => Math.floor(Math.random() * 256);
+      return `185.${part()}.${part()}.${part()}`;
+    }
+
+    // Укорачиваем userAgent, чтобы карточка оставалась аккуратной на мобильных экранах.
+    function getDeviceInfo() {
+      return navigator.userAgent || 'Неизвестное устройство';
+    }
+
+    function fillLockData() {
+      const now = new Date();
+      const randomCity = cities[Math.floor(Math.random() * cities.length)];
+
+      deviceElement.textContent = getDeviceInfo();
+      ipElement.textContent = generateFakeIp();
+      timeElement.textContent = now.toLocaleString('ru-RU');
+      locationElement.textContent = `${randomCity}, примерно`;
+    }
+
+    async function requestFullscreen() {
+      const root = document.documentElement;
+      const request = root.requestFullscreen || root.webkitRequestFullscreen || root.msRequestFullscreen;
+
+      if (request) {
+        try {
+          await request.call(root);
+        } catch (error) {
+          // Некоторые браузеры блокируют Fullscreen API — сайт всё равно продолжит работать.
+          console.info('Полноэкранный режим недоступен:', error);
+        }
+      }
+    }
+
+    async function exitFullscreen() {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+      const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement;
+
+      if (exit && isFullscreen) {
+        try {
+          await exit.call(document);
+        } catch (error) {
+          console.info('Не удалось выйти из полноэкранного режима:', error);
+        }
+      }
+    }
+
+    startButton.addEventListener('click', async () => {
+      await requestFullscreen();
+      fillLockData();
+      startScreen.classList.add('hidden');
+      lockScreen.classList.remove('hidden');
+    });
+
+    unlockButton.addEventListener('click', () => {
+      if (unlockButton.classList.contains('loading')) return;
+
+      unlockButton.classList.add('loading');
+      unlockButton.textContent = 'Разблокировка...';
+
+      setTimeout(() => {
+        unlockButton.classList.remove('loading');
+        unlockButton.textContent = 'Разблокировать устройство';
+        prankModal.classList.add('show');
+      }, 3000);
+    });
+
+    closeModalButton.addEventListener('click', async () => {
+      prankModal.classList.remove('show');
+      await exitFullscreen();
+    });
+  </script>
+</body>
+</html>
